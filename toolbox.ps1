@@ -1,7 +1,7 @@
 <#
   Melhorar Windows - utilitario Windows (instalar programas, tweaks, drivers)
   Uso local:   .\toolbox.ps1
-  Uso remoto:  & ([ScriptBlock]::Create((irm https://SEU-HOST/toolbox.ps1))) -BaseUrl https://SEU-HOST
+  Uso remoto:  irm https://raw.githubusercontent.com/diesomgomes/MelhoraWindows/main/toolbox.ps1 | iex
   Os arquivos apps.json e tweaks.json ficam na mesma pasta (ou em -BaseUrl).
 #>
 param([string]$BaseUrl = "")
@@ -16,7 +16,11 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 Add-Type -AssemblyName PresentationFramework
 $ErrorActionPreference = "Continue"
 $script:Root = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
-$script:LogFile = Join-Path $env:TEMP "melhorar-windows.log"
+# Sem os JSON locais (ex.: rodando via irm | iex), busca direto do GitHub.
+if (-not $BaseUrl -and -not (Test-Path (Join-Path $script:Root "apps.json"))) {
+    $BaseUrl = "https://raw.githubusercontent.com/diesomgomes/MelhoraWindows/main"
+}
+$script:LogFile =Join-Path $env:TEMP "melhorar-windows.log"
 
 function Get-Config([string]$file) {
     if ($BaseUrl) {
