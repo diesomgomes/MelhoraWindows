@@ -1,0 +1,75 @@
+[
+  {
+    "id": "power_high",
+    "name": "Plano de energia: Alto desempenho",
+    "note": "Ativa o plano Alto desempenho (desfazer volta ao Equilibrado)",
+    "type": "powercfg",
+    "apply": "SCHEME_MIN",
+    "undo": "SCHEME_BALANCED"
+  },
+  {
+    "id": "visual_perf",
+    "name": "Efeitos visuais: melhor desempenho",
+    "note": "Desativa animacoes e transparencia (usuario atual)",
+    "type": "registry",
+    "items": [
+      { "path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VisualEffects", "name": "VisualFXSetting", "type": "DWord", "apply": 2, "undo": 0 },
+      { "path": "HKCU:\\Control Panel\\Desktop\\WindowMetrics", "name": "MinAnimate", "type": "String", "apply": "0", "undo": "1" },
+      { "path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "name": "EnableTransparency", "type": "DWord", "apply": 0, "undo": 1 }
+    ]
+  },
+  {
+    "id": "telemetry",
+    "name": "Reduzir telemetria",
+    "note": "Define telemetria no nivel minimo permitido",
+    "type": "registry",
+    "items": [
+      { "path": "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\DataCollection", "name": "AllowTelemetry", "type": "DWord", "apply": 0, "undo": 1 }
+    ]
+  },
+  {
+    "id": "startup_delay",
+    "name": "Remover atraso de inicializacao de apps",
+    "note": "Apps de inicializacao carregam sem espera artificial",
+    "type": "registry",
+    "items": [
+      { "path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Serialize", "name": "StartupDelayInMSec", "type": "DWord", "apply": 0, "undo": 10000 }
+    ]
+  },
+  {
+    "id": "gamedvr",
+    "name": "Desativar Game DVR / Xbox Game Bar",
+    "note": "Libera recursos de segundo plano",
+    "type": "registry",
+    "items": [
+      { "path": "HKCU:\\System\\GameConfigStore", "name": "GameDVR_Enabled", "type": "DWord", "apply": 0, "undo": 1 },
+      { "path": "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\GameDVR", "name": "AppCaptureEnabled", "type": "DWord", "apply": 0, "undo": 1 }
+    ]
+  },
+  {
+    "id": "sysmain",
+    "name": "Servico SysMain (Superfetch): desativar",
+    "note": "Recomendado apenas em maquinas com SSD",
+    "type": "service",
+    "service": "SysMain",
+    "applyStartup": "Disabled",
+    "undoStartup": "Automatic"
+  },
+  {
+    "id": "search_index",
+    "name": "Servico Windows Search: manual",
+    "note": "Reduz uso de disco; a busca do Windows fica mais lenta",
+    "type": "service",
+    "service": "WSearch",
+    "applyStartup": "Manual",
+    "undoStartup": "Automatic"
+  },
+  {
+    "id": "temp_clean",
+    "name": "Limpar arquivos temporarios",
+    "note": "Acao unica, sem desfazer",
+    "type": "command",
+    "apply": "Get-ChildItem $env:TEMP -Recurse -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue",
+    "undo": null
+  }
+]
