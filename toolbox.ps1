@@ -1,5 +1,5 @@
 <#
-  Mithril Toolbox - utilitario Windows (instalar programas, tweaks, drivers)
+  Melhorar Windows - utilitario Windows (instalar programas, tweaks, drivers)
   Uso local:   .\toolbox.ps1
   Uso remoto:  & ([ScriptBlock]::Create((irm https://SEU-HOST/toolbox.ps1))) -BaseUrl https://SEU-HOST
   Os arquivos apps.json e tweaks.json ficam na mesma pasta (ou em -BaseUrl).
@@ -16,11 +16,17 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 Add-Type -AssemblyName PresentationFramework
 $ErrorActionPreference = "Continue"
 $script:Root = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
-$script:LogFile = Join-Path $env:TEMP "mithril-toolbox.log"
+$script:LogFile = Join-Path $env:TEMP "melhorar-windows.log"
 
 function Get-Config([string]$file) {
-    if ($BaseUrl) { return Invoke-RestMethod "$($BaseUrl.TrimEnd('/'))/$file" }
-    return Get-Content (Join-Path $script:Root $file) -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($BaseUrl) {
+        $data = Invoke-RestMethod "$($BaseUrl.TrimEnd('/'))/$file"
+    } else {
+        $data = Get-Content (Join-Path $script:Root $file) -Raw -Encoding UTF8 | ConvertFrom-Json
+    }
+    # No Windows PowerShell 5.1 o JSON chega como UM objeto contendo o array;
+    # o foreach abre o array e devolve cada item separado.
+    foreach ($item in $data) { $item }
 }
 
 $Apps   = @(Get-Config "apps.json")
@@ -29,7 +35,7 @@ $Tweaks = @(Get-Config "tweaks.json")
 # ---------- Interface ----------
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        Title="Mithril Toolbox" Width="900" Height="650" WindowStartupLocation="CenterScreen">
+        Title="Melhorar Windows" Width="900" Height="650" WindowStartupLocation="CenterScreen">
   <Grid Margin="10">
     <Grid.RowDefinitions>
       <RowDefinition Height="*"/>
@@ -167,7 +173,7 @@ function Run-Tweaks([bool]$apply) {
     if ($apply) {
         try {
             Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction SilentlyContinue
-            Checkpoint-Computer -Description "Mithril Toolbox" -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
+            Checkpoint-Computer -Description "Melhorar Windows" -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
             Log "Ponto de restauracao criado."
         } catch { Log "Aviso: ponto de restauracao nao criado ($($_.Exception.Message))" }
     }
