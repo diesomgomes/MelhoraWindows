@@ -54,5 +54,52 @@
     "note": "",
     "wingetId": "Anthropic.Claude",
     "openUrl": "https://claude.ai/download"
+  },
+  {
+    "id": "anydesk",
+    "category": "Acesso remoto",
+    "name": "AnyDesk",
+    "note": "",
+    "wingetId": "AnyDeskSoftwareGmbH.AnyDesk",
+    "openUrl": "https://anydesk.com/pt/downloads/windows"
+  },
+  {
+    "id": "teamviewer",
+    "category": "Acesso remoto",
+    "name": "TeamViewer",
+    "note": "",
+    "wingetId": "TeamViewer.TeamViewer",
+    "openUrl": "https://www.teamviewer.com/pt-br/download/windows/"
+  },
+  {
+    "id": "multsistem",
+    "category": "Acesso remoto",
+    "name": "Acesso remoto Multsistem",
+    "note": "Abre a pagina de download no navegador",
+    "openUrl": "https://nextcloud2.multsistem.com.br/s/yYgZRby862PiE86"
+  },
+  {
+    "id": "putty",
+    "category": "Acesso remoto",
+    "name": "PuTTY",
+    "note": "Cliente SSH/Telnet",
+    "wingetId": "PuTTY.PuTTY",
+    "openUrl": "https://www.putty.org/"
+  },
+  {
+    "id": "acrobat",
+    "category": "Escritorio",
+    "name": "Adobe Acrobat Reader",
+    "note": "Leitor de PDF",
+    "wingetId": "Adobe.Acrobat.Reader.64-bit",
+    "openUrl": "https://get.adobe.com/br/reader/"
+  },
+  {
+    "id": "whatsapp",
+    "category": "Comunicacao",
+    "name": "WhatsApp Desktop",
+    "note": "",
+    "wingetId": "WhatsApp.WhatsApp",
+    "openUrl": "https://www.whatsapp.com/download"
   }
 ]

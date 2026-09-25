@@ -20,7 +20,7 @@ $script:Root = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 if (-not $BaseUrl -and -not (Test-Path (Join-Path $script:Root "apps.json"))) {
     $BaseUrl = "https://raw.githubusercontent.com/diesomgomes/MelhoraWindows/main"
 }
-$script:LogFile =Join-Path $env:TEMP "melhorar-windows.log"
+$script:LogFile = Join-Path $env:TEMP "melhorar-windows.log"
 
 function Get-Config([string]$file) {
     if ($BaseUrl) {
@@ -63,6 +63,22 @@ $Tweaks = @(Get-Config "tweaks.json")
           <ScrollViewer><StackPanel Name="TweaksPanel"/></ScrollViewer>
         </DockPanel>
       </TabItem>
+      <TabItem Header="Desinstalar">
+        <DockPanel Margin="8">
+          <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Filtro:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <TextBox Name="TxtFilter" Width="260" Margin="0,0,8,0"/>
+            <Button Name="BtnReload" Content="Atualizar lista" Padding="10,4"/>
+          </StackPanel>
+          <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+            <CheckBox Name="ChkLeftovers" IsChecked="True"
+                      Content="Remover pastas restantes do programa (mostra a lista e pede confirmacao)"/>
+            <Button Name="BtnUninstall" Content="Desinstalar selecionados" Padding="14,6"
+                    Margin="0,8,0,0" HorizontalAlignment="Left"/>
+          </StackPanel>
+          <ScrollViewer><StackPanel Name="UninstPanel"/></ScrollViewer>
+        </DockPanel>
+      </TabItem>
       <TabItem Header="Drivers">
         <StackPanel Margin="8">
           <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
@@ -81,7 +97,8 @@ $Tweaks = @(Get-Config "tweaks.json")
 "@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
-foreach ($n in "AppsPanel","TweaksPanel","BtnInstall","BtnApply","BtnUndo","BtnScanDrv","BtnInstDrv","LogBox") {
+foreach ($n in "AppsPanel","TweaksPanel","BtnInstall","BtnApply","BtnUndo","BtnScanDrv","BtnInstDrv","LogBox",
+         "UninstPanel","TxtFilter","BtnReload","ChkLeftovers","BtnUninstall") {
     $ui[$n] = $win.FindName($n)
 }
 
@@ -190,6 +207,118 @@ function Run-Tweaks([bool]$apply) {
 $ui.BtnApply.Add_Click({ Run-Tweaks $true })
 $ui.BtnUndo.Add_Click({ Run-Tweaks $false })
 
+# ---------- Desinstalar em lote ----------
+$script:InstBoxes = @()
+
+function Get-InstalledApps {
+    $keys = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+            "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    Get-ItemProperty $keys -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -and -not $_.SystemComponent -and -not $_.ParentKeyName -and
+                       ($_.UninstallString -or $_.QuietUninstallString) } |
+        Sort-Object DisplayName -Unique
+}
+
+function Load-InstalledList {
+    $ui.UninstPanel.Children.Clear()
+    $script:InstBoxes = @()
+    foreach ($app in (Get-InstalledApps)) {
+        $cb = New-Object Windows.Controls.CheckBox
+        $ver = if ($app.DisplayVersion) { "  ($($app.DisplayVersion))" } else { "" }
+        $cb.Content = "$($app.DisplayName)$ver"
+        $cb.Tag = $app
+        $cb.Margin = "0,2,0,2"
+        $script:InstBoxes += $cb
+        [void]$ui.UninstPanel.Children.Add($cb)
+    }
+    Log "$($script:InstBoxes.Count) programas instalados listados."
+}
+
+$ui.TxtFilter.Add_TextChanged({
+    $f = $ui.TxtFilter.Text.Trim()
+    foreach ($cb in $script:InstBoxes) {
+        $cb.Visibility = if (-not $f -or $cb.Tag.DisplayName -like "*$f*") { "Visible" } else { "Collapsed" }
+    }
+})
+$ui.BtnReload.Add_Click({ Load-InstalledList })
+
+function Uninstall-One($app) {
+    Log "Desinstalando: $($app.DisplayName)"
+    $cmd = $app.QuietUninstallString
+    if (-not $cmd) {
+        $cmd = $app.UninstallString
+        # MSI: forca modo silencioso
+        if ($cmd -match 'msiexec' -and $cmd -match '\{[0-9A-Fa-f\-]{36}\}') {
+            $cmd = "msiexec.exe /x $($Matches[0]) /qn /norestart"
+        } else {
+            Log "  Sem modo silencioso: pode abrir o desinstalador do programa."
+        }
+    }
+    $p = Start-Process -FilePath "cmd.exe" -ArgumentList "/s /c `"$cmd`"" -Wait -PassThru -WindowStyle Hidden
+    Log "  Terminou (codigo $($p.ExitCode))."
+}
+
+function Test-SafeToDelete([string]$path) {
+    try { $full = [IO.Path]::GetFullPath($path).TrimEnd('\') } catch { return $false }
+    $bases = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramData,
+               $env:LOCALAPPDATA, $env:APPDATA, $env:USERPROFILE, $env:windir, $env:SystemDrive) |
+             Where-Object { $_ } | ForEach-Object { $_.TrimEnd('\') }
+    if ($bases -contains $full) { return $false }
+    if ($full.StartsWith($env:windir, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+    $depth = ($full.Substring(3) -split '\\' | Where-Object { $_ }).Count
+    if ($depth -lt 2) { return $false }
+    $leaf = Split-Path $full -Leaf
+    if ($leaf -in "Microsoft","Windows","Common Files","Windows NT","WindowsApps","Programs","Packages","Temp") { return $false }
+    return $true
+}
+
+function Get-Leftovers($app) {
+    $cands = @()
+    if ($app.InstallLocation) { $cands += $app.InstallLocation.Trim('"').TrimEnd('\') }
+    $names = @($app.DisplayName)
+    $clean = ($app.DisplayName -replace '\s+v?[\d\.]+.*$', '').Trim()
+    if ($clean.Length -ge 4 -and $clean -ne $app.DisplayName) { $names += $clean }
+    foreach ($base in $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramData, $env:LOCALAPPDATA, $env:APPDATA) {
+        if (-not $base) { continue }
+        foreach ($n in $names) { $cands += (Join-Path $base $n) }
+    }
+    $cands | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) -and (Test-SafeToDelete $_) } |
+        Select-Object -Unique
+}
+
+$ui.BtnUninstall.Add_Click({
+    $sel = @($script:InstBoxes | Where-Object { $_.IsChecked } | ForEach-Object { $_.Tag })
+    if ($sel.Count -eq 0) { Log "Nada selecionado."; return }
+    $lista = ($sel | ForEach-Object { " - $($_.DisplayName)" }) -join "`n"
+    $ans = [System.Windows.MessageBox]::Show("Desinstalar $($sel.Count) programa(s)?`n`n$lista", "Confirmar", "YesNo", "Warning")
+    if ($ans -ne "Yes") { Log "Cancelado."; return }
+
+    try {
+        Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction SilentlyContinue
+        Checkpoint-Computer -Description "Melhorar Windows - desinstalacao" -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
+        Log "Ponto de restauracao criado."
+    } catch { Log "Aviso: ponto de restauracao nao criado ($($_.Exception.Message))" }
+
+    foreach ($app in $sel) { try { Uninstall-One $app } catch { Log "  Erro: $_" } }
+
+    if ($ui.ChkLeftovers.IsChecked) {
+        $folders = @($sel | ForEach-Object { Get-Leftovers $_ } | Select-Object -Unique)
+        if ($folders.Count -gt 0) {
+            $txt = ($folders | ForEach-Object { " - $_" }) -join "`n"
+            $ans = [System.Windows.MessageBox]::Show("Pastas restantes encontradas. Excluir permanentemente?`n`n$txt", "Limpeza", "YesNo", "Warning")
+            if ($ans -eq "Yes") {
+                foreach ($f in $folders) {
+                    try { Remove-Item -LiteralPath $f -Recurse -Force -ErrorAction Stop; Log "Pasta removida: $f" }
+                    catch { Log "Nao foi possivel remover $f ($($_.Exception.Message))" }
+                }
+            } else { Log "Pastas mantidas." }
+        } else { Log "Nenhuma pasta restante encontrada." }
+    }
+    Log "Concluido."
+    Load-InstalledList
+})
+
 # ---------- Drivers ----------
 $script:PendingDrivers = $null
 $ui.BtnScanDrv.Add_Click({
@@ -225,5 +354,6 @@ $ui.BtnInstDrv.Add_Click({
     } catch { Log "Erro: $_" }
 })
 
+Load-InstalledList
 Log "Pronto. Log completo em $script:LogFile"
 [void]$win.ShowDialog()
