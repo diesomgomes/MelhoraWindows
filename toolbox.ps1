@@ -42,10 +42,15 @@ $Tweaks = @(Get-Config "tweaks.json")
         Title="Melhorar Windows" Width="900" Height="650" WindowStartupLocation="CenterScreen">
   <Grid Margin="10">
     <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
       <RowDefinition Height="*"/>
       <RowDefinition Height="150"/>
     </Grid.RowDefinitions>
-    <TabControl Grid.Row="0">
+    <Border Grid.Row="0" Background="#F0F0F0" BorderBrush="#CCCCCC" BorderThickness="1"
+            Padding="10,6" Margin="0,0,0,8">
+      <TextBlock Name="StatusText" Text="Pronto" FontWeight="Bold" Foreground="Green"/>
+    </Border>
+    <TabControl Grid.Row="1">
       <TabItem Header="Instalar">
         <DockPanel Margin="8">
           <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
@@ -90,7 +95,7 @@ $Tweaks = @(Get-Config "tweaks.json")
         </StackPanel>
       </TabItem>
     </TabControl>
-    <TextBox Name="LogBox" Grid.Row="1" Margin="0,8,0,0" IsReadOnly="True"
+    <TextBox Name="LogBox" Grid.Row="2" Margin="0,8,0,0" IsReadOnly="True"
              VerticalScrollBarVisibility="Auto" FontFamily="Consolas"/>
   </Grid>
 </Window>
@@ -98,7 +103,7 @@ $Tweaks = @(Get-Config "tweaks.json")
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $ui = @{}
 foreach ($n in "AppsPanel","TweaksPanel","BtnInstall","BtnApply","BtnUndo","BtnScanDrv","BtnInstDrv","LogBox",
-         "UninstPanel","TxtFilter","BtnReload","ChkLeftovers","BtnUninstall") {
+         "UninstPanel","TxtFilter","BtnReload","ChkLeftovers","BtnUninstall","StatusText") {
     $ui[$n] = $win.FindName($n)
 }
 
@@ -107,6 +112,44 @@ function Log([string]$msg) {
     $ui.LogBox.AppendText($line + "`r`n"); $ui.LogBox.ScrollToEnd()
     Add-Content -Path $script:LogFile -Value $line
     $win.Dispatcher.Invoke([Action]{}, [Windows.Threading.DispatcherPriority]::Background)
+}
+
+# ---------- Indicador de status (azul = executando, verde = pronto) ----------
+$script:Busy = $false
+$script:BusyStart = $null
+$script:BusyLabel = ""
+$script:StatusTimer = New-Object Windows.Threading.DispatcherTimer
+$script:StatusTimer.Interval = [TimeSpan]::FromSeconds(1)
+$script:StatusTimer.Add_Tick({
+    if ($script:BusyStart) {
+        $s = [int]((Get-Date) - $script:BusyStart).TotalSeconds
+        $ui.StatusText.Text = "$($script:BusyLabel)... ($s s)"
+    }
+})
+
+function Start-Busy([string]$label) {
+    $script:BusyLabel = $label
+    $script:BusyStart = Get-Date
+    $ui.StatusText.Foreground = "Blue"
+    $ui.StatusText.Text = "$label... (0 s)"
+    $script:StatusTimer.Start()
+    $win.Dispatcher.Invoke([Action]{}, [Windows.Threading.DispatcherPriority]::Background)
+}
+
+function Stop-Busy([string]$doneLabel = "Concluido") {
+    $script:StatusTimer.Stop()
+    $script:BusyStart = $null
+    $ui.StatusText.Foreground = "Green"
+    $ui.StatusText.Text = $doneLabel
+}
+
+function Invoke-Busy([string]$label, [scriptblock]$action) {
+    if ($script:Busy) { Log "Aguarde a operacao atual terminar."; return }
+    $script:Busy = $true
+    Start-Busy $label
+    try { & $action }
+    catch { Log "Erro: $_" }
+    finally { Stop-Busy "Concluido"; $script:Busy = $false }
 }
 
 # ---------- Listas ----------
@@ -156,10 +199,12 @@ function Install-App($a) {
 }
 
 $ui.BtnInstall.Add_Click({
-    $sel = $Apps | Where-Object { $appBoxes[$_.id].IsChecked }
-    if (-not $sel) { Log "Nada selecionado."; return }
-    foreach ($a in $sel) { try { Install-App $a } catch { Log "  Erro: $_" } }
-    Log "Concluido."
+    Invoke-Busy "Instalando programas" {
+        $sel = $Apps | Where-Object { $appBoxes[$_.id].IsChecked }
+        if (-not $sel) { Log "Nada selecionado."; return }
+        foreach ($a in $sel) { try { Install-App $a } catch { Log "  Erro: $_" } }
+        Log "Instalacao concluida."
+    }
 })
 
 # ---------- Tweaks ----------
@@ -204,8 +249,8 @@ function Run-Tweaks([bool]$apply) {
     }
     Log "Concluido. Alguns ajustes exigem reiniciar."
 }
-$ui.BtnApply.Add_Click({ Run-Tweaks $true })
-$ui.BtnUndo.Add_Click({ Run-Tweaks $false })
+$ui.BtnApply.Add_Click({ Invoke-Busy "Aplicando tweaks" { Run-Tweaks $true } })
+$ui.BtnUndo.Add_Click({ Invoke-Busy "Desfazendo tweaks" { Run-Tweaks $false } })
 
 # ---------- Desinstalar em lote ----------
 $script:InstBoxes = @()
@@ -241,7 +286,7 @@ $ui.TxtFilter.Add_TextChanged({
         $cb.Visibility = if (-not $f -or $cb.Tag.DisplayName -like "*$f*") { "Visible" } else { "Collapsed" }
     }
 })
-$ui.BtnReload.Add_Click({ Load-InstalledList })
+$ui.BtnReload.Add_Click({ Invoke-Busy "Listando programas instalados" { Load-InstalledList } })
 
 function Uninstall-One($app) {
     Log "Desinstalando: $($app.DisplayName)"
@@ -294,66 +339,71 @@ $ui.BtnUninstall.Add_Click({
     $ans = [System.Windows.MessageBox]::Show("Desinstalar $($sel.Count) programa(s)?`n`n$lista", "Confirmar", "YesNo", "Warning")
     if ($ans -ne "Yes") { Log "Cancelado."; return }
 
-    try {
-        Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction SilentlyContinue
-        Checkpoint-Computer -Description "Melhorar Windows - desinstalacao" -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
-        Log "Ponto de restauracao criado."
-    } catch { Log "Aviso: ponto de restauracao nao criado ($($_.Exception.Message))" }
+    Invoke-Busy "Desinstalando programas" {
+        try {
+            Enable-ComputerRestore -Drive "$env:SystemDrive\" -ErrorAction SilentlyContinue
+            Checkpoint-Computer -Description "Melhorar Windows - desinstalacao" -RestorePointType MODIFY_SETTINGS -ErrorAction Stop
+            Log "Ponto de restauracao criado."
+        } catch { Log "Aviso: ponto de restauracao nao criado ($($_.Exception.Message))" }
 
-    foreach ($app in $sel) { try { Uninstall-One $app } catch { Log "  Erro: $_" } }
+        foreach ($app in $sel) { try { Uninstall-One $app } catch { Log "  Erro: $_" } }
 
-    if ($ui.ChkLeftovers.IsChecked) {
-        $folders = @($sel | ForEach-Object { Get-Leftovers $_ } | Select-Object -Unique)
-        if ($folders.Count -gt 0) {
-            $txt = ($folders | ForEach-Object { " - $_" }) -join "`n"
-            $ans = [System.Windows.MessageBox]::Show("Pastas restantes encontradas. Excluir permanentemente?`n`n$txt", "Limpeza", "YesNo", "Warning")
-            if ($ans -eq "Yes") {
-                foreach ($f in $folders) {
-                    try { Remove-Item -LiteralPath $f -Recurse -Force -ErrorAction Stop; Log "Pasta removida: $f" }
-                    catch { Log "Nao foi possivel remover $f ($($_.Exception.Message))" }
-                }
-            } else { Log "Pastas mantidas." }
-        } else { Log "Nenhuma pasta restante encontrada." }
+        if ($ui.ChkLeftovers.IsChecked) {
+            $folders = @($sel | ForEach-Object { Get-Leftovers $_ } | Select-Object -Unique)
+            if ($folders.Count -gt 0) {
+                $txt = ($folders | ForEach-Object { " - $_" }) -join "`n"
+                $ans2 = [System.Windows.MessageBox]::Show("Pastas restantes encontradas. Excluir permanentemente?`n`n$txt", "Limpeza", "YesNo", "Warning")
+                if ($ans2 -eq "Yes") {
+                    foreach ($f in $folders) {
+                        try { Remove-Item -LiteralPath $f -Recurse -Force -ErrorAction Stop; Log "Pasta removida: $f" }
+                        catch { Log "Nao foi possivel remover $f ($($_.Exception.Message))" }
+                    }
+                } else { Log "Pastas mantidas." }
+            } else { Log "Nenhuma pasta restante encontrada." }
+        }
+        Load-InstalledList
     }
-    Log "Concluido."
-    Load-InstalledList
 })
 
 # ---------- Drivers ----------
 $script:PendingDrivers = $null
 $ui.BtnScanDrv.Add_Click({
-    Log "Dispositivos com problema:"
-    $bad = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.Status -in "Error","Unknown" }
-    if ($bad) { $bad | ForEach-Object { Log "  $($_.FriendlyName) [$($_.Status)]" } } else { Log "  Nenhum." }
-    Log "Procurando drivers no Windows Update (pode demorar)..."
-    try {
-        $session  = New-Object -ComObject Microsoft.Update.Session
-        $searcher = $session.CreateUpdateSearcher()
-        $res = $searcher.Search("IsInstalled=0 and Type='Driver'")
-        $script:PendingDrivers = $res.Updates
-        if ($res.Updates.Count -eq 0) { Log "  Nenhum driver pendente." }
-        else { foreach ($u in $res.Updates) { Log "  Disponivel: $($u.Title)" } }
-    } catch { Log "Erro na busca: $_" }
+    Invoke-Busy "Analisando drivers" {
+        Log "Dispositivos com problema:"
+        $bad = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.Status -in "Error","Unknown" }
+        if ($bad) { $bad | ForEach-Object { Log "  $($_.FriendlyName) [$($_.Status)]" } } else { Log "  Nenhum." }
+        Log "Procurando drivers no Windows Update (pode demorar)..."
+        try {
+            $session  = New-Object -ComObject Microsoft.Update.Session
+            $searcher = $session.CreateUpdateSearcher()
+            $res = $searcher.Search("IsInstalled=0 and Type='Driver'")
+            $script:PendingDrivers = $res.Updates
+            if ($res.Updates.Count -eq 0) { Log "  Nenhum driver pendente." }
+            else { foreach ($u in $res.Updates) { Log "  Disponivel: $($u.Title)" } }
+        } catch { Log "Erro na busca: $_" }
+    }
 })
 
 $ui.BtnInstDrv.Add_Click({
     if (-not $script:PendingDrivers -or $script:PendingDrivers.Count -eq 0) { Log "Rode 'Analisar' primeiro."; return }
-    try {
-        $session = New-Object -ComObject Microsoft.Update.Session
-        $coll = New-Object -ComObject Microsoft.Update.UpdateColl
-        foreach ($u in $script:PendingDrivers) {
-            if (-not $u.EulaAccepted) { $u.AcceptEula() }
-            [void]$coll.Add($u)
-        }
-        Log "Baixando $($coll.Count) driver(s)..."
-        $dl = $session.CreateUpdateDownloader(); $dl.Updates = $coll; [void]$dl.Download()
-        Log "Instalando..."
-        $inst = $session.CreateUpdateInstaller(); $inst.Updates = $coll
-        $r = $inst.Install()
-        Log "Resultado: codigo $($r.ResultCode). Reinicio necessario: $($r.RebootRequired)"
-    } catch { Log "Erro: $_" }
+    Invoke-Busy "Instalando drivers" {
+        try {
+            $session = New-Object -ComObject Microsoft.Update.Session
+            $coll = New-Object -ComObject Microsoft.Update.UpdateColl
+            foreach ($u in $script:PendingDrivers) {
+                if (-not $u.EulaAccepted) { $u.AcceptEula() }
+                [void]$coll.Add($u)
+            }
+            Log "Baixando $($coll.Count) driver(s)..."
+            $dl = $session.CreateUpdateDownloader(); $dl.Updates = $coll; [void]$dl.Download()
+            Log "Instalando..."
+            $inst = $session.CreateUpdateInstaller(); $inst.Updates = $coll
+            $r = $inst.Install()
+            Log "Resultado: codigo $($r.ResultCode). Reinicio necessario: $($r.RebootRequired)"
+        } catch { Log "Erro: $_" }
+    }
 })
 
-Load-InstalledList
-Log "Pronto. Log completo em $script:LogFile"
+Invoke-Busy "Carregando" { Load-InstalledList }
+Log "Log completo em $script:LogFile"
 [void]$win.ShowDialog()

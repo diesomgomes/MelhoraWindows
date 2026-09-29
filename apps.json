@@ -101,5 +101,36 @@
     "note": "",
     "wingetId": "WhatsApp.WhatsApp",
     "openUrl": "https://www.whatsapp.com/download"
+  },
+  {
+    "id": "7zip",
+    "category": "Escritorio",
+    "name": "7-Zip",
+    "note": "Compactador",
+    "wingetId": "7zip.7zip",
+    "openUrl": "https://www.7-zip.org/"
+  },
+  {
+    "id": "vscode",
+    "category": "Desenvolvimento",
+    "name": "Visual Studio Code",
+    "note": "Editor de codigo",
+    "wingetId": "Microsoft.VisualStudioCode",
+    "openUrl": "https://code.visualstudio.com/"
+  },
+  {
+    "id": "gdrive",
+    "category": "Escritorio",
+    "name": "Google Drive",
+    "note": "Sincronizacao de arquivos",
+    "wingetId": "Google.GoogleDrive",
+    "openUrl": "https://www.google.com/drive/download/"
+  },
+  {
+    "id": "samsung_m337x_407x",
+    "category": "Drivers",
+    "name": "Driver Samsung M337x/387x/407x",
+    "note": "Driver de impressora (baixa da Samsung/HP); confira o modelo exato antes de instalar",
+    "openUrl": "https://www.hp.com/us-en/drivers/samsung.html"
   }
 ]
